@@ -20,7 +20,7 @@ class Service implements ServiceInterface {
 
 	private function read() {
 		$string = @file_get_contents($this->fileName);
-		return json_decode($string, true);
+		return json_decode($string, true) ? : [];
 	}
 
 	private function write($data) {
@@ -60,7 +60,12 @@ class Service implements ServiceInterface {
 					$caseType = substr($filter, 1, 1);
 					$attrName = substr($filter, 2);
 
-					$attrValue = $obj->{$attrName};
+					if ($attrName == 'id') {
+						$attrValue = $obj->getID();
+
+					} else {
+						$attrValue = $obj->{$attrName};
+					}
 
 					switch ($filterType) {
 					    case '=':
@@ -119,7 +124,15 @@ class Service implements ServiceInterface {
 
 		if (is_null($id)) {
 			// generate new unique id
-			$id = $data[self::IDS_IDX][$table] ? : 0;
+			if (!array_key_exists(self::IDS_IDX, $data)) {
+				$data[self::IDS_IDX] = [];
+			}
+
+			$id = 0;
+			if (array_key_exists($table, $data[self::IDS_IDX])) {
+				$id = $data[self::IDS_IDX][$table];
+			}
+
 			$id += 1;
 
 			$data[self::IDS_IDX][$table] = $id;
@@ -179,7 +192,7 @@ interface ObjectInterface {
 
 class BaseObject {
 	protected $service;
-	public $id;
+	private $id;
 
 	public function __construct($service) {
 		$this->service = $service;
@@ -205,6 +218,26 @@ class PersonLanguage extends BaseObject implements ObjectInterface {
 		$this->personID = $personID;
 		$this->languageID = $languageID;
 	}
+
+    public function __toString() {
+	    $string = 'Person ID:%1$s, Language ID: %1$s';
+
+	    return sprintf(
+	        $string,
+			$this->personID,
+			$this->languageID
+	    );
+    }
+
+	public function getID() {
+		$id = '%1$s-%2$s';
+
+	    return sprintf(
+	        $id,
+	        mb_strtolower($this->personID, 'UTF-8'),
+	        mb_strtolower($this->languageID, 'UTF-8')
+	    );
+	}
 }
 
 
@@ -220,26 +253,48 @@ class Person extends BaseObject implements ObjectInterface {
 	}
 
     public function __toString() {
-    	// ID. Imiê Nazwisko - (jêzyk1, jêzyk2, ...)
-	    $string = '%1$s. %2$s %3$s (%4$s)';
+	    $personID = $this->getID();
 
 	    $service = $this->service;
-	    $thisID = $this->getID();
-
-	    $languages = $service->select(
+	    $personLanguages = $service->select(
 	    	'PersonLanguage',
-	    	['=spersonID' => $thisID]
+	    	['=spersonID' => $personID]
 	    );
+
+	    $languages = [];
+	    foreach($personLanguages as $personLanguage) {
+	    	$languageID = $personLanguage->languageID;
+
+		    $language = $service->select(
+		    	'Language',
+		    	['=sid' => $languageID]
+		    )[0];
+
+	    	$languages[] = $language;
+	    }
+
 
 	    $languages = implode(', ', $languages);
 
+    	// ID. Imiê Nazwisko - (jêzyk1, jêzyk2, ...)
+	    $string = '%1$s. %2$s %3$s (%4$s)';
+
 	    return sprintf(
 	        $string,
-	        $this->id,
+	        $personID,
 	        $this->name,
 	        $this->surname,
 	    	$languages
 	    );
+    }
+
+    public function addLanguage($language) {
+	    $personID = $this->getID();
+	    $languageID = $language->getID();
+
+	    $service = $this->service;
+		$personLanguage = new PersonLanguage($service, $personID, $languageID);
+		$service->insert($personLanguage);
     }
 }
 
@@ -314,6 +369,7 @@ $service = new Service($dbFileName);
 $command = $argv[1];
 
 
+/*
 $obj = new Person($service, 'Przemek', 'Czerkas');
 $service->insert($obj);
 
@@ -325,3 +381,9 @@ $service->update($obj2);
 
 $obj3 = $service->select('Person', ['~iname' => 'Xx'])[0];
 echo $obj3 . PHP_EOL;
+
+$obj4 = new Language($service, 'PHP');
+$service->insert($obj4);
+
+$obj3->addLanguage($obj4);
+*/

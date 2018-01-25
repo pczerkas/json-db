@@ -1,7 +1,7 @@
 <?php
 
 interface ServiceInterface {
-	public function select($table, $filters=null);
+	public function select($table, $filters = null);
 	public function insert(&$obj);
 	public function update($obj);
 	public function delete(&$obj);
@@ -12,18 +12,18 @@ class Service implements ServiceInterface {
 	const IDS_IDX = 'ids';
 	const OBJECTS_IDX = 'objects';
 
-	private $fileName = '';
+	private $fileName;
 
 	public function __construct($fileName) {
 		$this->fileName = $fileName;
 	}
 
-	private function read() {
+	private function readFile() {
 		$string = @file_get_contents($this->fileName);
 		return json_decode($string, true) ? : [];
 	}
 
-	private function write($data) {
+	private function writeFile($data) {
 		$string = json_encode($data);
 		file_put_contents($this->fileName, $string);
 	}
@@ -40,8 +40,85 @@ class Service implements ServiceInterface {
 		return unserialize($objString);
 	}
 
-	public function select($table, $filters=null) {
-		$data = $this->read();
+	private function selectFilterEqual($caseType, $attrValue, $filterValue) {
+		$matches = false;
+
+    	switch ($caseType) {
+    		case 's':
+				if (strcmp($attrValue, $filterValue) == 0) {
+					$matches = true;
+				}
+				break;
+
+    		case 'i':
+				if (strcasecmp($attrValue, $filterValue) == 0) {
+					$matches = true;
+				}
+				break;
+    	}
+
+    	return $matches;
+	}
+
+	private function selectFilterContains($caseType, $attrValue, $filterValue) {
+		$matches = false;
+
+    	switch ($caseType) {
+    		case 's':
+				break;
+
+    		case 'i':
+    			$attrValue = mb_strtolower($attrValue, 'UTF-8');
+    			$filterValue = mb_strtolower($filterValue, 'UTF-8');
+				break;
+    	}
+
+		if (strpos($attrValue, $filterValue) !== false) {
+			$matches = true;
+		}
+
+    	return $matches;
+	}
+
+	private function selectFilters($obj, $filters) {
+		$matches = false;
+
+		foreach ($filters as $filter => $filterValue) {
+			$filterType = substr($filter, 0, 1);
+			$caseType = substr($filter, 1, 1);
+			$attrName = substr($filter, 2);
+
+			if ($attrName == 'id') {
+				$attrValue = $obj->getID();
+
+			} else {
+				$attrValue = $obj->{$attrName};
+			}
+
+			$filterValues = is_array($filterValue) ? $filterValue : [$filterValue];
+
+			foreach ($filterValues as $filterValue) {
+				switch ($filterType) {
+				    case '=':
+				    	$matches = $this->selectFilterEqual($caseType, $attrValue, $filterValue);
+						break;
+
+				    case '~':
+				    	$matches = $this->selectFilterContains($caseType, $attrValue, $filterValue);
+						break;
+				}
+
+				if ($matches) {
+					break;
+				}
+			}
+		}
+
+		return $matches;
+	}
+
+	public function select($table, $filters = null) {
+		$data = $this->readFile();
 
 		$result = [];
 
@@ -56,57 +133,8 @@ class Service implements ServiceInterface {
 		foreach ($data[self::OBJECTS_IDX][$table] as $id => $objString) {
 			$obj = $this->unserializeObject($objString);
 
-			if ($filters) {
-				$matches = false;
-
-				foreach ($filters as $filter => $filterValue) {
-					$filterType = substr($filter, 0, 1);
-					$caseType = substr($filter, 1, 1);
-					$attrName = substr($filter, 2);
-
-					if ($attrName == 'id') {
-						$attrValue = $obj->getID();
-
-					} else {
-						$attrValue = $obj->{$attrName};
-					}
-
-					switch ($filterType) {
-					    case '=':
-					    	switch ($caseType) {
-					    		case 's':
-									if (strcmp($attrValue, $filterValue) == 0) {
-										$matches = true;
-									}
-									break;
-
-					    		case 'i':
-									if (strcasecmp($attrValue, $filterValue) == 0) {
-										$matches = true;
-									}
-									break;
-					    	}
-							break;
-
-					    case '~':
-					    	switch ($caseType) {
-					    		case 's':
-									break;
-
-					    		case 'i':
-					    			$attrValue = mb_strtolower($attrValue, 'UTF-8');
-					    			$filterValue = mb_strtolower($filterValue, 'UTF-8');
-									break;
-
-					    	}
-
-							if (strpos($attrValue, $filterValue) !== false) {
-								$matches = true;
-							}
-
-							break;
-					}
-				}
+			if (!is_null($filters)) {
+				$matches = $this->selectFilters($obj, $filters);
 
 			} else {
 				$matches = true;
@@ -122,7 +150,7 @@ class Service implements ServiceInterface {
 
 	public function insert(&$obj) {
 		$table = $this->getTable($obj);
-		$data = $this->read();
+		$data = $this->readFile();
 
 		$id = $obj->getID();
 
@@ -147,7 +175,7 @@ class Service implements ServiceInterface {
 
 		$data[self::OBJECTS_IDX][$table][$id] = $this->serializeObject($obj);
 
-		$this->write($data);
+		$this->writeFile($data);
 
 		return $id;
 	}
@@ -160,11 +188,11 @@ class Service implements ServiceInterface {
 		}
 
 		$table = $this->getTable($obj);
-		$data = $this->read();
+		$data = $this->readFile();
 
 		$data[self::OBJECTS_IDX][$table][$id] = $this->serializeObject($obj);
 
-		$this->write($data);
+		$this->writeFile($data);
 
 		return true;
 	}
@@ -177,11 +205,14 @@ class Service implements ServiceInterface {
 		}
 
 		$table = $this->getTable($obj);
-		$data = $this->read();
+		$data = $this->readFile();
+
+		// clear id
+		$obj->setID(null);
 
 		unset($data[self::OBJECTS_IDX][$table][$id]);
 
-		$this->write($data);
+		$this->writeFile($data);
 
 		return true;
 	}
@@ -242,6 +273,28 @@ class PersonLanguage extends BaseObject implements ObjectInterface {
 	        mb_strtolower($this->languageID, 'UTF-8')
 	    );
 	}
+
+    public function getPerson() {
+	    $pID = $this->personID;
+
+	    $s = $this->service;
+
+	    return $s->select(
+	    	'Person',
+	    	['=sid' => $pID]
+	    )[0];
+    }
+
+    public function getLanguage() {
+	    $lID = $this->languageID;
+
+	    $s = $this->service;
+
+	    return $s->select(
+	    	'Language',
+	    	['=sid' => $lID]
+	    )[0];
+    }
 }
 
 
@@ -269,29 +322,21 @@ class Person extends BaseObject implements ObjectInterface {
     public function __toString() {
 	    $personID = $this->getID();
 
-	    $service = $this->service;
-	    $personLanguages = $service->select(
+	    $s = $this->service;
+	    $personLanguages = $s->select(
 	    	'PersonLanguage',
 	    	['=spersonID' => $personID]
 	    );
 
 	    $languages = [];
-	    foreach($personLanguages as $personLanguage) {
-	    	$languageID = $personLanguage->languageID;
-
-		    $language = $service->select(
-		    	'Language',
-		    	['=sid' => $languageID]
-		    )[0];
-
-	    	$languages[] = $language;
+	    foreach ($personLanguages as $personLanguage) {
+	    	$languages[] = $personLanguage->getLanguage();
 	    }
-
 
 	    $languages = implode(', ', $languages);
 
     	// ID. Imiê Nazwisko - (jêzyk1, jêzyk2, ...)
-	    $string = '%1$s. %2$s %3$s (%4$s)';
+	    $string = '%1$s. %2$s %3$s - (%4$s)';
 
 	    return sprintf(
 	        $string,
@@ -306,9 +351,11 @@ class Person extends BaseObject implements ObjectInterface {
 	    $personID = $this->getID();
 	    $languageID = $language->getID();
 
-	    $service = $this->service;
-		$personLanguage = new PersonLanguage($service, $personID, $languageID);
-		$service->insert($personLanguage);
+	    $s = $this->service;
+
+		$personLanguage = new PersonLanguage($s, $personID, $languageID);
+
+		return $s->insert($personLanguage);
     }
 }
 
@@ -331,15 +378,20 @@ class Language extends BaseObject implements ObjectInterface {
 	    );
     }
 
-	public function getID() {
-		return mb_strtolower($this->name, 'UTF-8');
+	public function getID($name = null) {
+		if (is_null($name)) {
+			$name = $this->name;
+		}
+
+		return mb_strtolower($name, 'UTF-8');
 	}
 }
 
 
 class Command {
 	private $service;
-	private $commands = [
+
+	const COMMANDS = [
 	    'list' => 'getPersonList',
 	    'find' => 'filterPersonsByText',
 	    'languages' => 'filterPersonsByLanguage',
@@ -354,31 +406,114 @@ class Command {
 	}
 
 	private function getPersonList() {
-		$service = $this->service;
-		$persons = $service->select('Person');
+		$s = $this->service;
 
-		foreach ($persons as $person) {
-			echo $person . PHP_EOL;
+		$persons = $s->select('Person');
+
+		foreach ($persons as $p) {
+			echo $p . PHP_EOL;
 		}
 	}
 
 	private function filterPersonsByText($text) {
-		$service = $this->service;
-		$persons = $service->select('Person', ['~itext' => $text]);
+		$s = $this->service;
+
+		$persons = $s->select(
+			'Person',
+			['~itext' => $text]
+		);
+
+		foreach ($persons as $p) {
+			echo $p . PHP_EOL;
+		}
 	}
 
-	private function filterPersonsByLanguage() {
+	private function filterPersonsByLanguage(...$languageIDs) {
+		$s = $this->service;
 
+		$personLanguages = $s->select(
+			'PersonLanguage',
+			['=slanguageID' => $languageIDs]
+		);
+
+		$persons = [];
+		foreach ($personLanguages as $personLanguage) {
+			$persons[] = $personLanguage->getPerson();
+		}
+
+		foreach ($persons as $p) {
+			echo $p . PHP_EOL;
+		}
 	}
 
-	private function addPerson($name, $surname) {
-		$service = $this->service;
-		$person = new Person($service, $name, $surname);
-		$service->insert($person);
+	private function addPerson($name, $surname, ...$languageNames) {
+		$s = $this->service;
+
+		$person = new Person($s, $name, $surname);
+
+		$s->insert($person);
+
+		foreach ($languageNames as $languageName) {
+			$language = new Language($s, $languageName);
+
+			$s->insert($language);
+
+			$person->addLanguage($language);
+		}
+	}
+
+	private function removePerson($personID) {
+		$s = $this->service;
+
+		$person = $s->select(
+			'Person',
+			['=sid' => $personID]
+		)[0];
+
+		$s->delete($person);
+
+	    // remove m2m records
+	    $personLanguages = $s->select(
+	    	'PersonLanguage',
+	    	['=spersonID' => $personID]
+	    );
+
+	    foreach ($personLanguages as $personLanguage) {
+	    	$s->delete($personLanguage);
+	    }
+	}
+
+	private function addLanguage($name) {
+		$s = $this->service;
+
+		$language = new Language($s, $name);
+
+		$s->insert($language);
+	}
+
+	private function removeLanguage($languageID) {
+		$s = $this->service;
+
+		$language = $s->select(
+			'Language',
+			['=sid' => $languageID]
+		)[0];
+
+		$s->delete($language);
+
+	    // remove m2m records
+	    $personLanguages = $s->select(
+	    	'PersonLanguage',
+	    	['=slanguageID' => $languageID]
+	    );
+
+	    foreach ($personLanguages as $personLanguage) {
+	    	$s->delete($personLanguage);
+	    }
 	}
 
 	public function dispatch($command, $args) {
-		$func = $this->commands[$command];
+		$func = $this::COMMANDS[$command];
 
 		call_user_func_array(array($this, $func), $args);
 	}
@@ -390,7 +525,7 @@ if ($argc < 2) {
     $usage = sprintf(
         $usage,
         __FILE__,
-        implode(', ', array_keys($commands))
+        implode(', ', array_keys(Command::COMMANDS))
     );
 
     exit($usage . PHP_EOL);
@@ -404,24 +539,7 @@ $service = new Service($dbFileName);
 
 $command = new Command($service);
 
-$command->dispatch($argv[1], $argv);
-
-
-/*
-$obj = new Person($service, 'Przemek', 'Czerkas');
-$service->insert($obj);
-
-$obj2 = $service->select('Person')[0];
-echo $obj2 . PHP_EOL;
-
-$obj2->name = 'XXX';
-$service->update($obj2);
-
-$obj3 = $service->select('Person', ['~iname' => 'Xx'])[0];
-echo $obj3 . PHP_EOL;
-
-$obj4 = new Language($service, 'PHP');
-$service->insert($obj4);
-
-$obj3->addLanguage($obj4);
-*/
+$command->dispatch(
+	$argv[1],
+	array_slice($argv, 2)
+);

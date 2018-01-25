@@ -45,6 +45,10 @@ class Service implements ServiceInterface {
 
 		$result = [];
 
+		if (!array_key_exists(self::OBJECTS_IDX, $data)) {
+			$data[self::OBJECTS_IDX] = [];
+		}
+
 		if (!array_key_exists($table, $data[self::OBJECTS_IDX])) {
 			return $result;
 		}
@@ -244,12 +248,22 @@ class PersonLanguage extends BaseObject implements ObjectInterface {
 class Person extends BaseObject implements ObjectInterface {
 	public $name;
 	public $surname;
+	public $text;
 
 	public function __construct($service, $name, $surname) {
 		parent::__construct($service);
 
 		$this->name = $name;
 		$this->surname = $surname;
+
+    	// Imiê Nazwisko
+	    $text = '%1$s %2$s';
+
+	    $this->text = sprintf(
+	        $text,
+	        $this->name,
+	        $this->surname
+	    );
 	}
 
     public function __toString() {
@@ -323,30 +337,52 @@ class Language extends BaseObject implements ObjectInterface {
 }
 
 
-function getPersonList() {
+class Command {
+	private $service;
+	private $commands = [
+	    'list' => 'getPersonList',
+	    'find' => 'filterPersonsByText',
+	    'languages' => 'filterPersonsByLanguage',
+	    'addPerson' => 'addPerson',
+	    'removePerson' => 'removePerson',
+	    'addLanguage' => 'addLanguage',
+	    'removeLanguage' => 'removeLanguage',
+	];
 
+	public function __construct($service) {
+		$this->service = $service;
+	}
+
+	private function getPersonList() {
+		$service = $this->service;
+		$persons = $service->select('Person');
+
+		foreach ($persons as $person) {
+			echo $person . PHP_EOL;
+		}
+	}
+
+	private function filterPersonsByText($text) {
+		$service = $this->service;
+		$persons = $service->select('Person', ['~itext' => $text]);
+	}
+
+	private function filterPersonsByLanguage() {
+
+	}
+
+	private function addPerson($name, $surname) {
+		$service = $this->service;
+		$person = new Person($service, $name, $surname);
+		$service->insert($person);
+	}
+
+	public function dispatch($command, $args) {
+		$func = $this->commands[$command];
+
+		call_user_func_array(array($this, $func), $args);
+	}
 }
-
-
-function filterPersonsByName() {
-
-}
-
-
-function filterPersonsByLanguage() {
-
-}
-
-
-$commands = [
-    'list' => 'getPersonList',
-    'find' => 'filterPersonsByName',
-    'languages' => 'filterPersonsByLanguage',
-    'addPerson' => 'addPerson',
-    'removePerson' => 'removePerson',
-    'addLanguage' => 'addLanguage',
-    'removeLanguage' => 'removeLanguage',
-];
 
 
 if ($argc < 2) {
@@ -366,7 +402,9 @@ $dbFileName = $config['db_file_name'];
 
 $service = new Service($dbFileName);
 
-$command = $argv[1];
+$command = new Command($service);
+
+$command->dispatch($argv[1], $argv);
 
 
 /*

@@ -19,7 +19,7 @@ class Service implements ServiceInterface {
 	}
 
 	private function read() {
-		$string = file_get_contents($this->file_name);
+		$string = @file_get_contents($this->file_name);
 		return json_decode($string, true);
 	}
 
@@ -40,8 +40,7 @@ class Service implements ServiceInterface {
 		return unserialize($obj_string);
 	}
 
-	public function select($obj, $filters=null) {
-		$table = $this->get_table($obj);
+	public function select($table, $filters=null) {
 		$data = $this->read();
 
 		$result = [];
@@ -54,7 +53,7 @@ class Service implements ServiceInterface {
 
 				foreach ($filters as $filter => $filter_value) {
 					$filter_type = substr($filter, 0, 1);
-					$case_type = substr($filter, 1, 2);
+					$case_type = substr($filter, 1, 1);
 					$attr_name = substr($filter, 2);
 
 					$attr_value = $obj->{$attr_name};
@@ -63,13 +62,13 @@ class Service implements ServiceInterface {
 					    case '=':
 					    	switch ($case_type) {
 					    		case 's':
-									if (strcmp($attr_value, $value) == 0) {
+									if (strcmp($attr_value, $filter_value) == 0) {
 										$matches = true;
 									}
 									break;
 
 					    		case 'i':
-									if (strcasecmp($attr_value, $value) == 0) {
+									if (strcasecmp($attr_value, $filter_value) == 0) {
 										$matches = true;
 									}
 									break;
@@ -83,12 +82,12 @@ class Service implements ServiceInterface {
 
 					    		case 'i':
 					    			$attr_value = mb_strtolower($attr_value, 'UTF-8');
-					    			$value = mb_strtolower($value, 'UTF-8');
+					    			$filter_value = mb_strtolower($filter_value, 'UTF-8');
 									break;
 
 					    	}
 
-							if (strpos($attr_value, $value) !== false) {
+							if (strpos($attr_value, $filter_value) !== false) {
 								$matches = true;
 							}
 
@@ -113,13 +112,13 @@ class Service implements ServiceInterface {
 		$data = $this->read();
 
 		// generate new id
-		$id = $data[IDS_IDX][$table] ? : -1;
+		$id = $data[self::IDS_IDX][$table] ? : -1;
 		$id += 1;
 
-		$data[IDS_IDX][$table] = $id;
+		$data[self::IDS_IDX][$table] = $id;
 
 		// assign id
-		$obj->id = $id;
+		$obj->setID($id);
 
 		$data[self::OBJECTS_IDX][$table][$id] = $this->serialize_object($obj);
 
@@ -129,7 +128,7 @@ class Service implements ServiceInterface {
 	}
 
 	public function update($obj) {
-		$id = $obj->id;
+		$id = $obj->getID();
 
 		if ($id === null) {
 			return false;
@@ -146,7 +145,7 @@ class Service implements ServiceInterface {
 	}
 
 	public function delete(&$obj) {
-		$id = $obj->id;
+		$id = $obj->getID();
 
 		if ($id === null) {
 			return false;
@@ -248,3 +247,17 @@ $db_file_name = $config['db_file_name'];
 $service = new Service($db_file_name);
 
 $command = $argv[1];
+
+/*
+$obj = new Person('Przemek', 'Czerkas');
+$service->insert($obj);
+
+$obj2 = $service->select('Person', $filters=null)[0];
+print_r($obj2);
+
+$obj2->name = 'XXX';
+$service->update($obj2);
+
+$obj3 = $service->select('Person', $filters=['~iname' => 'Xx'])[0];
+print_r($obj3);
+*/

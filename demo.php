@@ -1,6 +1,6 @@
 <?php
 
-interface iService {
+interface ServiceInterface {
 	public function select($obj, $filters=null);
 	public function insert(&$obj);
 	public function update($obj);
@@ -8,7 +8,7 @@ interface iService {
 }
 
 
-class Service implements iService {
+class Service implements ServiceInterface {
 	const IDS_IDX = 'ids';
 	const OBJECTS_IDX = 'objects';
 
@@ -163,7 +163,28 @@ class Service implements iService {
 	}
 }
 
-class Person {
+
+interface ObjectInterface {
+	public function getID();
+	public function setID($id);
+}
+
+
+class BaseObject {
+	public $id;
+
+	public function getID() {
+		return $this->id;
+
+	}
+
+	public function setID($id) {
+		$this->id = $id;
+	}
+}
+
+
+class Person extends BaseObject implements ObjectInterface {
 	public $name;
 	public $surname;
 
@@ -173,7 +194,8 @@ class Person {
 	}
 }
 
-class Language {
+
+class Language extends BaseObject implements ObjectInterface {
 	public $name;
 
 	function __construct($name) {
@@ -181,13 +203,16 @@ class Language {
 	}
 }
 
+
 function getPersonList() {
 
 }
 
+
 function filterPersonsByName() {
 
 }
+
 
 function filterPersonsByLanguage() {
 

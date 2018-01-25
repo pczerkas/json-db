@@ -1,6 +1,17 @@
 <?php
 
-class Service {
+interface iService {
+	public function select($obj, $filters=null);
+	public function insert(&$obj);
+	public function update($obj);
+	public function delete(&$obj);
+}
+
+
+class Service implements iService {
+	const IDS_IDX = 'ids';
+	const OBJECTS_IDX = 'objects';
+
 	private $file_name = '';
 
 	function __construct($file_name) {
@@ -25,36 +36,63 @@ class Service {
 		return serialize($obj);
 	}
 
-	private function serialize_object($obj) {
-		return unserialize($obj);
+	private function unserialize_object($obj_string) {
+		return unserialize($obj_string);
 	}
 
-	public function select($obj, $filters = null) {
+	public function select($obj, $filters=null) {
 		$table = $this->get_table($obj);
 		$data = $this->read();
 
 		$result = [];
 
-		foreach ($data['objects'][$table] as $id => $obj_s) {
-			$obj = $this->unserialze_object($obj_s);
+		foreach ($data[self::OBJECTS_IDX][$table] as $id => $obj_string) {
+			$obj = $this->unserialize_object($obj_string);
 
 			if ($filters) {
 				$matches = false;
 
-				foreach ($filters as $filter => $value) {
+				foreach ($filters as $filter => $filter_value) {
 					$filter_type = substr($filter, 0, 1);
-					$attr_name = substr($filter, 1);
+					$case_type = substr($filter, 1, 2);
+					$attr_name = substr($filter, 2);
+
+					$attr_value = $obj->{$attr_name};
 
 					switch ($filter_type) {
 					    case '=':
-							if ($obj->{$attr_name} == $value) {
+					    	switch ($case_type) {
+					    		case 's':
+									if (strcmp($attr_value, $value) == 0) {
+										$matches = true;
+									}
+									break;
+
+					    		case 'i':
+									if (strcasecmp($attr_value, $value) == 0) {
+										$matches = true;
+									}
+									break;
+					    	}
+							break;
+
+					    case '~':
+					    	switch ($case_type) {
+					    		case 's':
+									break;
+
+					    		case 'i':
+					    			$attr_value = mb_strtolower($attr_value, 'UTF-8');
+					    			$value = mb_strtolower($value, 'UTF-8');
+									break;
+
+					    	}
+
+							if (strpos($attr_value, $value) !== false) {
 								$matches = true;
 							}
 
-					    case '~':
-							if (strpos($obj->{$attr_name}, $value) !== false) {
-								$matches = true;
-							}
+							break;
 					}
 				}
 
@@ -75,15 +113,15 @@ class Service {
 		$data = $this->read();
 
 		// generate new id
-		$id = $data['ids'][$table] ? : -1;
+		$id = $data[IDS_IDX][$table] ? : -1;
 		$id += 1;
 
-		$data['ids'][$table] = $id;
+		$data[IDS_IDX][$table] = $id;
 
 		// assign id
 		$obj->id = $id;
 
-		$data['objects'][$table][$id] = $this->serialize_object($obj);
+		$data[self::OBJECTS_IDX][$table][$id] = $this->serialize_object($obj);
 
 		$this->write($data);
 
@@ -100,7 +138,7 @@ class Service {
 		$table = $this->get_table($obj);
 		$data = $this->read();
 
-		$data['objects'][$table][$id] = $this->serialize_object($obj);
+		$data[self::OBJECTS_IDX][$table][$id] = $this->serialize_object($obj);
 
 		$this->write($data);
 
@@ -117,7 +155,7 @@ class Service {
 		$table = $this->get_table($obj);
 		$data = $this->read();
 
-		unset($data['objects'][$table][$id]);
+		unset($data[self::OBJECTS_IDX][$table][$id]);
 
 		$this->write($data);
 
@@ -126,11 +164,21 @@ class Service {
 }
 
 class Person {
+	public $name;
+	public $surname;
 
+	function __construct($name, $surname) {
+		$this->name = $name;
+		$this->surname = $surname;
+	}
 }
 
 class Language {
+	public $name;
 
+	function __construct($name) {
+		$this->name = $name;
+	}
 }
 
 function getPersonList() {

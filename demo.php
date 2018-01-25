@@ -1,7 +1,7 @@
 <?php
 
 interface ServiceInterface {
-	public function select($obj, $filters=null);
+	public function select($table, $filters=null);
 	public function insert(&$obj);
 	public function update($obj);
 	public function delete(&$obj);
@@ -12,32 +12,32 @@ class Service implements ServiceInterface {
 	const IDS_IDX = 'ids';
 	const OBJECTS_IDX = 'objects';
 
-	private $file_name = '';
+	private $fileName = '';
 
-	function __construct($file_name) {
-		$this->file_name = $file_name;
+	public function __construct($fileName) {
+		$this->fileName = $fileName;
 	}
 
 	private function read() {
-		$string = @file_get_contents($this->file_name);
+		$string = @file_get_contents($this->fileName);
 		return json_decode($string, true);
 	}
 
 	private function write($data) {
 		$string = json_encode($data);
-		file_put_contents($this->file_name, $string);
+		file_put_contents($this->fileName, $string);
 	}
 
-	private function get_table($obj) {
+	private function getTable($obj) {
 		return get_class($obj);
 	}
 
-	private function serialize_object($obj) {
+	private function serializeObject($obj) {
 		return serialize($obj);
 	}
 
-	private function unserialize_object($obj_string) {
-		return unserialize($obj_string);
+	private function unserializeObject($objString) {
+		return unserialize($objString);
 	}
 
 	public function select($table, $filters=null) {
@@ -45,30 +45,34 @@ class Service implements ServiceInterface {
 
 		$result = [];
 
-		foreach ($data[self::OBJECTS_IDX][$table] as $id => $obj_string) {
-			$obj = $this->unserialize_object($obj_string);
+		if (!array_key_exists($table, $data[self::OBJECTS_IDX])) {
+			return $result;
+		}
+
+		foreach ($data[self::OBJECTS_IDX][$table] as $id => $objString) {
+			$obj = $this->unserializeObject($objString);
 
 			if ($filters) {
 				$matches = false;
 
-				foreach ($filters as $filter => $filter_value) {
-					$filter_type = substr($filter, 0, 1);
-					$case_type = substr($filter, 1, 1);
-					$attr_name = substr($filter, 2);
+				foreach ($filters as $filter => $filterValue) {
+					$filterType = substr($filter, 0, 1);
+					$caseType = substr($filter, 1, 1);
+					$attrName = substr($filter, 2);
 
-					$attr_value = $obj->{$attr_name};
+					$attrValue = $obj->{$attrName};
 
-					switch ($filter_type) {
+					switch ($filterType) {
 					    case '=':
-					    	switch ($case_type) {
+					    	switch ($caseType) {
 					    		case 's':
-									if (strcmp($attr_value, $filter_value) == 0) {
+									if (strcmp($attrValue, $filterValue) == 0) {
 										$matches = true;
 									}
 									break;
 
 					    		case 'i':
-									if (strcasecmp($attr_value, $filter_value) == 0) {
+									if (strcasecmp($attrValue, $filterValue) == 0) {
 										$matches = true;
 									}
 									break;
@@ -76,18 +80,18 @@ class Service implements ServiceInterface {
 							break;
 
 					    case '~':
-					    	switch ($case_type) {
+					    	switch ($caseType) {
 					    		case 's':
 									break;
 
 					    		case 'i':
-					    			$attr_value = mb_strtolower($attr_value, 'UTF-8');
-					    			$filter_value = mb_strtolower($filter_value, 'UTF-8');
+					    			$attrValue = mb_strtolower($attrValue, 'UTF-8');
+					    			$filterValue = mb_strtolower($filterValue, 'UTF-8');
 									break;
 
 					    	}
 
-							if (strpos($attr_value, $filter_value) !== false) {
+							if (strpos($attrValue, $filterValue) !== false) {
 								$matches = true;
 							}
 
@@ -108,19 +112,23 @@ class Service implements ServiceInterface {
 	}
 
 	public function insert(&$obj) {
-		$table = $this->get_table($obj);
+		$table = $this->getTable($obj);
 		$data = $this->read();
 
-		// generate new id
-		$id = $data[self::IDS_IDX][$table] ? : -1;
-		$id += 1;
+		$id = $obj->getID();
 
-		$data[self::IDS_IDX][$table] = $id;
+		if (is_null($id)) {
+			// generate new unique id
+			$id = $data[self::IDS_IDX][$table] ? : 0;
+			$id += 1;
 
-		// assign id
-		$obj->setID($id);
+			$data[self::IDS_IDX][$table] = $id;
 
-		$data[self::OBJECTS_IDX][$table][$id] = $this->serialize_object($obj);
+			// assign id
+			$obj->setID($id);
+		}
+
+		$data[self::OBJECTS_IDX][$table][$id] = $this->serializeObject($obj);
 
 		$this->write($data);
 
@@ -134,10 +142,10 @@ class Service implements ServiceInterface {
 			return false;
 		}
 
-		$table = $this->get_table($obj);
+		$table = $this->getTable($obj);
 		$data = $this->read();
 
-		$data[self::OBJECTS_IDX][$table][$id] = $this->serialize_object($obj);
+		$data[self::OBJECTS_IDX][$table][$id] = $this->serializeObject($obj);
 
 		$this->write($data);
 
@@ -151,7 +159,7 @@ class Service implements ServiceInterface {
 			return false;
 		}
 
-		$table = $this->get_table($obj);
+		$table = $this->getTable($obj);
 		$data = $this->read();
 
 		unset($data[self::OBJECTS_IDX][$table][$id]);
@@ -170,11 +178,15 @@ interface ObjectInterface {
 
 
 class BaseObject {
+	protected $service;
 	public $id;
+
+	public function __construct($service) {
+		$this->service = $service;
+	}
 
 	public function getID() {
 		return $this->id;
-
 	}
 
 	public function setID($id) {
@@ -183,22 +195,75 @@ class BaseObject {
 }
 
 
+class PersonLanguage extends BaseObject implements ObjectInterface {
+	public $personID;
+	public $languageID;
+
+	public function __construct($service, $personID, $languageID) {
+		parent::__construct($service);
+
+		$this->personID = $personID;
+		$this->languageID = $languageID;
+	}
+}
+
+
 class Person extends BaseObject implements ObjectInterface {
 	public $name;
 	public $surname;
 
-	function __construct($name, $surname) {
+	public function __construct($service, $name, $surname) {
+		parent::__construct($service);
+
 		$this->name = $name;
 		$this->surname = $surname;
 	}
+
+    public function __toString() {
+    	// ID. Imiê Nazwisko - (jêzyk1, jêzyk2, ...)
+	    $string = '%1$s. %2$s %3$s (%4$s)';
+
+	    $service = $this->service;
+	    $thisID = $this->getID();
+
+	    $languages = $service->select(
+	    	'PersonLanguage',
+	    	['=spersonID' => $thisID]
+	    );
+
+	    $languages = implode(', ', $languages);
+
+	    return sprintf(
+	        $string,
+	        $this->id,
+	        $this->name,
+	        $this->surname,
+	    	$languages
+	    );
+    }
 }
 
 
 class Language extends BaseObject implements ObjectInterface {
 	public $name;
 
-	function __construct($name) {
+	public function __construct($service, $name) {
+		parent::__construct($service);
+
 		$this->name = $name;
+	}
+
+    public function __toString() {
+	    $string = '%1$s';
+
+	    return sprintf(
+	        $string,
+	        $this->name
+	    );
+    }
+
+	public function getID() {
+		return mb_strtolower($this->name, 'UTF-8');
 	}
 }
 
@@ -237,27 +302,26 @@ if ($argc < 2) {
         implode(', ', array_keys($commands))
     );
 
-    exit($usage . "\n");
+    exit($usage . PHP_EOL);
 }
 
 $config = parse_ini_file(__DIR__ . '/demo.ini');
 
-$db_file_name = $config['db_file_name'];
+$dbFileName = $config['db_file_name'];
 
-$service = new Service($db_file_name);
+$service = new Service($dbFileName);
 
 $command = $argv[1];
 
-/*
-$obj = new Person('Przemek', 'Czerkas');
+
+$obj = new Person($service, 'Przemek', 'Czerkas');
 $service->insert($obj);
 
-$obj2 = $service->select('Person', $filters=null)[0];
-print_r($obj2);
+$obj2 = $service->select('Person')[0];
+echo $obj2 . PHP_EOL;
 
 $obj2->name = 'XXX';
 $service->update($obj2);
 
-$obj3 = $service->select('Person', $filters=['~iname' => 'Xx'])[0];
-print_r($obj3);
-*/
+$obj3 = $service->select('Person', ['~iname' => 'Xx'])[0];
+echo $obj3 . PHP_EOL;

@@ -378,12 +378,12 @@ class Language extends BaseObject implements ObjectInterface {
 	    );
     }
 
-	public function getID($name = null) {
-		if (is_null($name)) {
-			$name = $this->name;
-		}
-
+	public static function getIDByName($name) {
 		return mb_strtolower($name, 'UTF-8');
+	}
+
+	public function getID() {
+		return $this->getIDByName($this->name);
 	}
 }
 
@@ -428,8 +428,13 @@ class Command {
 		}
 	}
 
-	private function filterPersonsByLanguage(...$languageIDs) {
+	private function filterPersonsByLanguage(...$languageNames) {
 		$s = $this->service;
+
+		$languageIDs = [];
+		foreach ($languageNames as $languageName) {
+			$languageIDs[] = Language::getIDByName($languageName);
+		}
 
 		$personLanguages = $s->select(
 			'PersonLanguage',
@@ -491,8 +496,10 @@ class Command {
 		$s->insert($language);
 	}
 
-	private function removeLanguage($languageID) {
+	private function removeLanguage($languageName) {
 		$s = $this->service;
+
+		$languageID = Language::getIDByName($languageName);
 
 		$language = $s->select(
 			'Language',
